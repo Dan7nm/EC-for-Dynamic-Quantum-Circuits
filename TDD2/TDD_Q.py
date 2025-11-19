@@ -13,16 +13,20 @@ def add_hyper_index(var_list,hyper_index):
             hyper_index[var]=0
             
 def reshape(U):
-    if U.shape==(1,1):
+    """Reshape a 2^n x 2^n operator into a 2^(2n) tensor."""
+    U = np.asarray(U)
+    if U.ndim != 2:
         return U
-    
-    if U.shape[0]==U.shape[1]:
-        split_U=np.split(U,2,1)
-    else:
-        split_U=np.split(U,2,0)
-    split_U[0]=reshape(split_U[0])
-    split_U[1]=reshape(split_U[1]) 
-    return np.array([split_U])[0]            
+    rows, cols = U.shape
+    if rows != cols:
+        raise ValueError("Operator must be square to reshape")
+    if rows == 1:
+        return U
+    qubits = int(np.log2(rows))
+    if 2 ** qubits != rows:
+        raise ValueError("Operator dimension must be a power of two")
+    target_shape = (2,) * (2 * qubits)
+    return U.reshape(target_shape)
             
 def get_real_qubit_num(cir):
     """Calculate the real number of qubits of a circuit"""
@@ -100,7 +104,12 @@ def cir_2_tn(cir,input_s=[],output_s=[]):
             
             add_hyper_index([var_tar_in,var_tar_out],hyper_index) 
            
-            var +=[Index(var_tar_in,hyper_index[var_tar_in]),Index(var_tar_out,hyper_index[var_tar_out])]
+            # var +=[Index(var_tar_in,hyper_index[var_tar_in]),Index(var_tar_out,hyper_index[var_tar_out])]
+            c_in = var[0]
+            c_out = var[1]
+            t_in = Index(var_tar_in,hyper_index[var_tar_in])
+            t_out = Index(var_tar_out,hyper_index[var_tar_out])
+            var = [c_out, t_out, c_in, t_in]
               
             bits = [int(k1) for k1 in list(bin(g[0].condition[1])[2:])]
 
@@ -119,8 +128,8 @@ def cir_2_tn(cir,input_s=[],output_s=[]):
 #             print(U)
             B=U
             for b in bits[:-1]:
-                B=B[b][b]
-            B[bits[-1]][bits[-1]]=Operator(g[0]).data
+                B=B[b, b]
+            B[bits[-1], bits[-1]]=Operator(g[0]).data
             ts=Tensor(U,var,nam,q)
             
 #             print(U)
@@ -139,7 +148,7 @@ def cir_2_tn(cir,input_s=[],output_s=[]):
             var_tar_in='x'+ str(q[1])+'_'+str(qubits_index[q[1]])
             var_tar_out='x'+ str(q[1])+'_'+str(qubits_index[q[1]]+1)
             add_hyper_index([var_con,var_tar_in,var_tar_out],hyper_index)
-            var+=[Index(var_con,hyper_index[var_con]),Index(var_con,hyper_index[var_con]+1),Index(var_tar_in,hyper_index[var_tar_in]),Index(var_tar_out,hyper_index[var_tar_out])]
+            var+=[Index(var_con,hyper_index[var_con]+1),Index(var_tar_out,hyper_index[var_tar_out]),Index(var_con,hyper_index[var_con]),Index(var_tar_in,hyper_index[var_tar_in])]
             U=np.array([[1,0,0,0],[0,1,0,0],[0,0,0,1],[0,0,1,0]])
             U=reshape(U)
             ts=Tensor(U,var,nam,q)
@@ -156,24 +165,32 @@ def cir_2_tn(cir,input_s=[],output_s=[]):
         ts=Tensor([],[],nam,q)
         U=Operator(g[0]).data
         if is_diagonal(U):
+            vars_in = []
+            vars_out = []
             for k in q:
                 var_in='x'+ str(k)+'_'+str(qubits_index[k])
                 add_hyper_index([var_in],hyper_index)
-                var+=[Index(var_in,hyper_index[var_in]),Index(var_in,hyper_index[var_in]+1)]
+                vars_in.append(Index(var_in,hyper_index[var_in]))
+                vars_out.append(Index(var_in,hyper_index[var_in]+1))
                 if qubits_index[k]==0 and hyper_index[var_in]==0:
                     start_tensors[k]=ts
                 end_tensors[k]=ts             
                 hyper_index[var_in]+=1
+            var += vars_out + vars_in
         else:
+            vars_in = []
+            vars_out = []
             for k in q:
                 var_in='x'+ str(k)+'_'+str(qubits_index[k])
                 var_out='x'+ str(k)+'_'+str(qubits_index[k]+1)
                 add_hyper_index([var_in,var_out],hyper_index)
-                var+=[Index(var_in,hyper_index[var_in]),Index(var_out,hyper_index[var_out])]
+                vars_in.append(Index(var_in,hyper_index[var_in]))
+                vars_out.append(Index(var_out,hyper_index[var_out]))
                 if qubits_index[k]==0 and hyper_index[var_in]==0:
                     start_tensors[k]=ts
                 end_tensors[k]=ts                
                 qubits_index[k]+=1
+            var += vars_out + vars_in
         if nam=='ccx':
             U=np.array([[1,0,0,0,0,0,0,0],[0,1,0,0,0,0,0,0],[0,0,1,0,0,0,0,0],[0,0,0,1,0,0,0,0],
                        [0,0,0,0,1,0,0,0],[0,0,0,0,0,1,0,0],[0,0,0,0,0,0,0,1],[0,0,0,0,0,0,1,0],])
